@@ -29,7 +29,7 @@ require 'pp'
 UUID = "467fd32695d242f2bbbc5c8f4610b120"
 
 def dump(uuid, major, minor, pwr, rssi)
-  time = Time.now.strftime("%Y-%m-%d %H:%M:%S")
+  time = Time.now.strftime("%Y-%m-%d %H:%M:%S %z")
   if uuid == UUID
     puts "#{time}/#{uuid}/#{major}/#{minor}/#{pwr}/#{rssi}"
   end
@@ -50,7 +50,7 @@ device_id = ScanBeacon::BlueZ.devices[0][:device_id]
 
 STDOUT.sync = true
 while true
-  puts "scanning..."
+  STDERR.puts "scanning..."
   ScanBeacon::BlueZ.scan(device_id) do |mac, ad_data, rssi|
     if ad_data && ad_data.size >= 30
       uuid, major, minor, pwr = ad_data.unpack("@9 H32 n n c")
