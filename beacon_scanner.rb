@@ -24,31 +24,40 @@ end
 
 require "rubygems"
 require 'scan_beacon'
-require "pp"
+require 'pp'
 
-# scanner = ScanBeacon::DefaultScanner.new
-# scanner = ScanBeacon::CoreBluetoothScanner.new
+UUID = "467fd32695d242f2bbbc5c8f4610b120"
 
-while true
-  ScanBeacon::CoreBluetooth::scan do
-    sleep 0.2
-    advertisements = ScanBeacon::CoreBluetooth::new_adverts
-    advertisements.each do |scan|
-      puts "----------------------------------"
-      if scan[:service_uuid]
-        pp scan[:service_uuid] + scan[:data]
-      else
-        puts "device: #{scan[:device]}"
-        puts scan[:data].unpack("C*").map{|c| "%02X" % c}.join
-      end
-    end
+def dump(uuid, major, minor, pwr, rssi)
+  time = Time.now.strftime("%Y-%m-%d %H:%M:%S")
+  if uuid == UUID
+    puts "#{time}/#{uuid}/#{major}/#{minor}/#{pwr}/#{rssi}"
   end
-  sleep 2
 end
 
-# scanner.scan do |beacons|
-#   puts "scanning..."
-#   beacons.each do |beacon|
-#     puts beacon.inspect
-#   end
-# end
+if false
+scanner = ScanBeacon::DefaultScanner.new
+
+scanner.scan do |beacons|
+  puts "scanning..."
+  beacons.each do |beacon|
+    puts beacon.inspect
+  end
+end
+
+end
+device_id = ScanBeacon::BlueZ.devices[0][:device_id]
+
+STDOUT.sync = true
+while true
+  puts "scanning..."
+  ScanBeacon::BlueZ.scan(device_id) do |mac, ad_data, rssi|
+    if ad_data && ad_data.size >= 30
+      uuid, major, minor, pwr = ad_data.unpack("@9 H32 n n c")
+      dump(uuid, major, minor, pwr, rssi)
+    else
+     # puts "nil"
+    end
+  end
+  sleep 3
+end
