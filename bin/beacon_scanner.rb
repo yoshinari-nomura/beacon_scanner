@@ -24,7 +24,9 @@ end
 
 require "rubygems"
 require 'scan_beacon'
-require "pp"
+require 'pp'
+
+STDOUT.sync = true
 
 UUID = "467fd32695d242f2bbbc5c8f4610b120"
 
@@ -36,54 +38,40 @@ def dump(uuid, major, minor, pwr, rssi)
   end
 end
 
-i = 0
-ScanBeacon::CoreBluetooth::scan do
-  sleep 2
-  advertisements = ScanBeacon::CoreBluetooth::new_adverts
-  advertisements.each do |scan|
-    # scan has :device, :data, :rssi, :service_uuid
-    # iBeacon format:  4 + 16 + 2 + 2 + 1 = 25
-    #   4C 00 02 15 (16bytes UUID) (2bytes Major) (2bytes Minor) (1byte Power)
-    # https://support.kontakt.io/hc/en-gb/articles/201492492-iBeacon-advertising-packet-structure
-    puts "service_uuid: #{scan[:service_uuid]}" if scan[:service_uuid]
-    head, uuid, major, minor, pwr = scan[:data].unpack("H8 H32 n n c")
-    if head == "4c000215"
-      dump(uuid, major, minor, pwr, scan[:rssi])
-      i += 1
-    end
-  end
-  true # loop forever
-end
+# https://support.kontakt.io/hc/en-gb/articles/201492492-iBeacon-advertising-packet-structure
 
-exit 0
-
-while true
-  i = 0
+case RUBY_PLATFORM
+when /darwin/
   ScanBeacon::CoreBluetooth::scan do
     advertisements = ScanBeacon::CoreBluetooth::new_adverts
     advertisements.each do |scan|
-      if scan[:service_uuid]
-        pp scan[:service_uuid] + scan[:data]
-      else
-        # puts "device: #{scan[:device]}"
-        beacon_payload = scan[:data].unpack("C*").map{|c| "%02X" % c}.join
-        next unless /C9$/ =~ beacon_payload
-        switch = if /2000080000C9$/ =~ beacon_payload
-                   "ON"
-                 else
-                   "OFF"
-                 end
-        puts "#{i} #{beacon_payload} #{switch}"
-        i += 1
+      # scan[] has :device, :data, :rssi, :service_uuid
+      # iBeacon format:  4 + 16 + 2 + 2 + 1 = 25
+      #   4C 00 02 15 (16bytes UUID) (2bytes Major) (2bytes Minor) (1byte Power)
+      # CoreBluetooth includes first 4 bytes 4C 00 02 15 in scan[:data]
+      # puts "service_uuid: #{scan[:service_uuid]}" if scan[:service_uuid]
+      head, uuid, major, minor, pwr = scan[:data].unpack("H8 H32 n n c")
+      if head == "4c000215" # Apple iBeacon
+        dump(uuid, major, minor, pwr, scan[:rssi])
       end
     end
+    sleep 3
+    true # loop forever
   end
-  # sleep 2
-end
 
-# scanner.scan do |beacons|
-#   puts "scanning..."
-#   beacons.each do |beacon|
-#     puts beacon.inspect
-#   end
-# end
+when /linux/
+  device_id = ScanBeacon::BlueZ.devices[0][:device_id]
+  while true
+    STDERR.puts "scanning..."
+    ScanBeacon::BlueZ.scan(device_id) do |mac, ad_data, rssi|
+      if ad_data && ad_data.size >= 30
+        uuid, major, minor, pwr = ad_data.unpack("@9 H32 n n c")
+        dump(uuid, major, minor, pwr, rssi)
+      else
+        # debug
+        # puts "nil"
+      end
+    end
+    sleep 3
+  end
+end
