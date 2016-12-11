@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# sudo-bundle-exec /path/to/ruby-file
+
+TOPDIR=$(dirname "$0")
+
+cd "$TOPDIR"
+
+BUNDLE=$(rbenv which bundle)
+sudo "$BUNDLE" exec "$0" "$@"
