@@ -41,6 +41,7 @@ end
 
 require "rubygems"
 require 'scan_beacon'
+require 'redis'
 
 
 ################################################################
@@ -51,11 +52,25 @@ STDOUT.sync = true
 
 UUIDS = ["467fd32695d242f2bbbc5c8f4610b120"]
 
+if ARGV.shift == '--redis'
+  $redis = Redis.new
+end
+
 def dump(uuid, major, minor, pwr, rssi)
   time = Time.now.strftime("%Y-%m-%d %H:%M:%S %z")
   if UUIDS.member?(uuid)
     # 2016-12-10 21:47:49 +0900/467fd32695d242f2bbbc5c8f4610b120/0/0/-55/-84
     puts "#{time}/#{uuid}/#{major}/#{minor}/#{pwr}/#{rssi}"
+  end
+end
+
+def push_to_redis(uuid, major, minor, pwr, rssi)
+  time = Time.now.strftime("%Y-%m-%d %H:%M:%S %z")
+  data = "#{time}/#{uuid}/#{major}/#{minor}/#{pwr}/#{rssi}"
+
+  if UUIDS.member?(uuid)
+    $redis.publish 'door.205', data
+    $redis.set     'door.205', data
   end
 end
 
@@ -72,6 +87,7 @@ when /darwin/
         header, uuid, major, minor, pwr = scan[:data].unpack("H8 H32 n n c")
         if header == "4c000215" # Apple iBeacon
           dump(uuid, major, minor, pwr, scan[:rssi])
+          push_to_redis(uuid, major, minor, pwr, scan[:rssi]) if $redis
         end
       end
     end
@@ -89,6 +105,7 @@ when /linux/
         _, header, uuid, major, minor, pwr = ad_data.unpack("H10 H8 H32 n n c")
         if header == "4c000215" # Apple iBeacon
           dump(uuid, major, minor, pwr, rssi)
+          push_to_redis(uuid, major, minor, pwr, scan[:rssi]) if $redis
         end
       end
     end
