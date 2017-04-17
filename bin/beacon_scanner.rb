@@ -105,7 +105,7 @@ when /linux/
         _, header, uuid, major, minor, pwr = ad_data.unpack("H10 H8 H32 n n c")
         if header == "4c000215" # Apple iBeacon
           dump(uuid, major, minor, pwr, rssi)
-          push_to_redis(uuid, major, minor, pwr, scan[:rssi]) if $redis
+          push_to_redis(uuid, major, minor, pwr, rssi) if $redis
         end
       end
     end
