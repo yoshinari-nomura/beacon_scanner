@@ -29,8 +29,8 @@ if /linux/ =~ RUBY_PLATFORM
 end
 
 ################################################################
-# This script is supposed to be located at TOP/bin/this_script.
-# Also TOP/Gemfile.lock exists.
+# This script is supposed to be located at TOP/bin/this_script,
+# also TOP/Gemfile.lock exists.
 
 gemfile = File.expand_path("../../Gemfile", __FILE__)
 
@@ -43,72 +43,120 @@ require "rubygems"
 require 'scan_beacon'
 require 'redis'
 
+################################################################
+# Helper classes
+
+class BeaconStatus
+  MEMBER_UUIDS = ["467fd32695d242f2bbbc5c8f4610b120"]
+
+  attr_reader :uuid, :major, :minor, :power, :rssi, :timestamp
+
+  def initialize(uuid, major, minor, power, rssi, timestamp = Time.now)
+    @uuid, @major, @minor, @power, @rssi, @timestamp =
+      uuid, major.to_i, minor.to_i, power.to_i, rssi.to_i, timestamp
+  end
+
+  def lock_status
+    return 0 if major == 8
+    return 1 # locked
+  end
+
+  def member?
+    MEMBER_UUIDS.member?(uuid)
+  end
+
+  def dump
+    timestr = timestamp.strftime("%Y-%m-%d %H:%M:%S %z")
+    return "#{timestr}/#{uuid}/#{major}/#{minor}/#{power}/#{rssi} (lock:#{lock_status})"
+  end
+
+  # XXX should be in subclass
+  def push_to_redis(redis, key)
+    redis.set     "#{key}.major",     major
+    redis.set     "#{key}.minor",     minor
+    redis.set     "#{key}.power",     power
+    redis.set     "#{key}.rssi",      rssi
+    redis.set     "#{key}.timestamp", timestamp
+    redis.set     "#{key}.locked",    lock_status
+    redis.publish "#{key}.updated",   timestamp
+  end
+
+end # class BeaconStatus
+
+class BeaconScanner
+  def event_loop(&block)
+    case RUBY_PLATFORM
+    when /darwin/
+      event_loop_macos(&block)
+    when /linux/
+      event_loop_linux(&block)
+    end
+  end
+
+  private
+
+  # XXX should be in subclass
+  def event_loop_macos(&block)
+    ScanBeacon::CoreBluetooth::scan do
+      advertisements = ScanBeacon::CoreBluetooth::new_adverts
+      continue_loop = true
+
+      advertisements.each do |scan|
+        # scan[] has :device, :data, :rssi, :service_uuid
+        # iBeacon format:  4 + 16 + 2 + 2 + 1 = 25
+        #   4C 00 02 15 (16bytes UUID) (2bytes Major) (2bytes Minor) (1byte Power)
+        # CoreBluetooth includes first 4 bytes 4C 00 02 15 in scan[:data]
+        break unless scan[:data] && scan[:data].size >= 25
+        header, uuid, major, minor, power = scan[:data].unpack("H8 H32 n n c")
+        continue_loop = yield header, uuid, major, minor, power, scan[:rssi]
+      end
+
+      sleep 3 if continue_loop
+      continue_loop # loop forever if true
+    end
+  end
+
+  # XXX should be in subclass
+  def event_loop_linux(&block)
+    device_id = ScanBeacon::BlueZ.devices[0][:device_id]
+    continue_loop = true
+
+    while continue_loop
+      ScanBeacon::BlueZ.scan(device_id) do |mac, scan, rssi|
+        # https://support.kontakt.io/hc/en-gb/articles/201492492-iBeacon-advertising-packet-structure
+        # bluez retuns extra five bytes advertised header: discard it eating by H10
+        break unless scan && scan.size >= 30
+        _, header, uuid, major, minor, power = scan.unpack("H10 H8 H32 n n c")
+        continue_loop = yield header, uuid, major, minor, power, rssi
+      end
+      sleep 3 if continue_loop
+    end
+  end
+end
 
 ################################################################
-# This script is supposed to be located at TOP/bin/this_script.
-# Also TOP/Gemfile.lock exists.
+### main
 
 STDOUT.sync = true
 
-UUIDS = ["467fd32695d242f2bbbc5c8f4610b120"]
-
+#
+# Usage: beacon_scanner.rb [--redis key]
+#
 if ARGV.shift == '--redis'
   $redis = Redis.new
-end
+  $redis_key = ARGV.shift
 
-def dump(uuid, major, minor, pwr, rssi)
-  time = Time.now.strftime("%Y-%m-%d %H:%M:%S %z")
-  if UUIDS.member?(uuid)
-    # 2016-12-10 21:47:49 +0900/467fd32695d242f2bbbc5c8f4610b120/0/0/-55/-84
-    puts "#{time}/#{uuid}/#{major}/#{minor}/#{pwr}/#{rssi}"
+  unless $redis_key
+    STDERR.puts "beacon_scanner.rb [--redis key]"
+    exit(-1)
   end
 end
 
-def push_to_redis(uuid, major, minor, pwr, rssi)
-  time = Time.now.strftime("%Y-%m-%d %H:%M:%S %z")
-  data = "#{time}/#{uuid}/#{major}/#{minor}/#{pwr}/#{rssi}"
-
-  if UUIDS.member?(uuid)
-    $redis.publish 'door.205', data
-    $redis.set     'door.205', data
+BeaconScanner.new.event_loop do |header, uuid, major, minor, power, rssi|
+  if header == "4c000215" # Apple iBeacon
+    stat = BeaconStatus.new(uuid, major, minor, power, rssi)
+    puts stat.dump if stat.member?
+    stat.push_to_redis($redis, $redis_key) if $redis
   end
-end
-
-case RUBY_PLATFORM
-when /darwin/
-  ScanBeacon::CoreBluetooth::scan do
-    advertisements = ScanBeacon::CoreBluetooth::new_adverts
-    advertisements.each do |scan|
-      # scan[] has :device, :data, :rssi, :service_uuid
-      # iBeacon format:  4 + 16 + 2 + 2 + 1 = 25
-      #   4C 00 02 15 (16bytes UUID) (2bytes Major) (2bytes Minor) (1byte Power)
-      # CoreBluetooth includes first 4 bytes 4C 00 02 15 in scan[:data]
-      if scan[:data] && scan[:data].size >= 25
-        header, uuid, major, minor, pwr = scan[:data].unpack("H8 H32 n n c")
-        if header == "4c000215" # Apple iBeacon
-          dump(uuid, major, minor, pwr, scan[:rssi])
-          push_to_redis(uuid, major, minor, pwr, scan[:rssi]) if $redis
-        end
-      end
-    end
-    sleep 3
-    true # loop forever
-  end
-
-when /linux/
-  device_id = ScanBeacon::BlueZ.devices[0][:device_id]
-  while true
-    ScanBeacon::BlueZ.scan(device_id) do |mac, ad_data, rssi|
-      if ad_data && ad_data.size >= 30
-        # https://support.kontakt.io/hc/en-gb/articles/201492492-iBeacon-advertising-packet-structure
-        # bluez retuns extra five bytes advertised header: discard it eating by H10
-        _, header, uuid, major, minor, pwr = ad_data.unpack("H10 H8 H32 n n c")
-        if header == "4c000215" # Apple iBeacon
-          dump(uuid, major, minor, pwr, rssi)
-          push_to_redis(uuid, major, minor, pwr, rssi) if $redis
-        end
-      end
-    end
-    sleep 3
-  end
+  true # loop forever
 end
