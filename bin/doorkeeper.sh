@@ -5,13 +5,13 @@
 set_slack_status()
 {
   case "$1" in
-  8)
-      echo "$(date) I'm at 205"
-      ame :smile: "I'm at 205"
-      ;;
   0)
+      echo "$(date) I'm at 205"
+      ame -m status :smile: "I'm at 205"
+      ;;
+  1)
       echo "$(date) I'm out"
-      ame :new_moon: "I'm out"
+      ame -m status :new_moon: "I'm out"
       ;;
   *)
       echo "unknown status $1"
@@ -20,7 +20,7 @@ set_slack_status()
 
 while true
 do
-  status=$(redis-cli --raw get door.205 | sed 's!.*/\([80]\)/0/.*!\1!')
+  status=$(redis-cli --raw get sensor.room.205.locked)
   if [ "$current_status" != "$status" ]; then
     current_status="$status"
     set_slack_status "$current_status"
