@@ -1,0 +1,145 @@
+#!/bin/bash
+
+################################################################
+## Usage
+
+usage() {
+  echo "ame [-c CONFIG_FILE] [-t TEAM] -m message ICON TEXT"
+  echo "ame [-c CONFIG_FILE] [-t TEAM] -m status CHANNEL TEXT"
+  echo "  -c Set config file name."
+  echo "  -t Set Slack team name."
+  echo "  -m Select method (message or status)."
+  echo "examples:"
+  echo '  ame -m status :office: "I am at office"'
+  echo '  ame -m message general "Hi, there."'
+} >&2
+
+print_error() {
+  printf "Error: $@\n"
+} >&2
+
+################################################################
+## Update Slack Status
+
+update_slack_status () {
+  local token="$1"
+  local emoji="$2"
+  local stext="$3"
+
+  local response=$(curl -s -S -X POST \
+       -d "token=$token" \
+       --data-urlencode "profile={\"status_text\": \"$stext\", \"status_emoji\": \"$emoji\"}" \
+       https://slack.com/api/users.profile.set \
+       | sed -n 's/{"ok":false,"error":"\([^"]*\)".*/\1/p')
+
+  echo "$response" | tr '_' ' '
+}
+
+################################################################
+## Post text to Slack
+
+post_text_to_slack () {
+  local token="$1"
+  local channel="$2"
+  local text="$3"
+
+  local response=$(curl -s -S -X POST \
+       -d "token=$token" \
+       --data-urlencode "channel=$channel" \
+       --data-urlencode "text=$text" \
+       --data-urlencode "as_user=true" \
+       https://slack.com/api/chat.postMessage \
+       | sed -n 's/{"ok":false,"error":"\([^"]*\)".*/\1/p')
+
+  echo "$response" | tr '_' ' '
+}
+
+################################################################
+## Parse option
+
+OPT_CONF="$HOME/.config/ame/config.sh"
+
+while getopts "c:dt:m:" flag
+do
+  case $flag in
+    # getopts sets '?' to flag on error.
+    \?|h) OPT_ERROR=1
+          ;;
+    c)    OPT_CONF="$OPTARG"
+          ;;
+    d)    OPT_DEBUG="true"
+          ;;
+    t)    OPT_TEAM="$OPTARG"
+          ;;
+    m)    OPT_METHOD="$OPTARG"
+          ;;
+  esac
+done
+shift $(( $OPTIND - 1 ))
+
+# unknown option check
+if [ "$OPT_ERROR" = 1 -o $# -ne 2 ]; then
+  usage
+  exit -1
+fi
+
+################################################################
+## Read Config
+#
+# config.sh Example:
+#
+# DEFAULT_TEAM="yourteam"
+# TOKEN_YOURTEAM="xoxp-xxxxxxxxxx-xxxxxxxxxx-xxxxxxxxxx-xxxxxx"
+# TOKEN_ANOTERTEAM="xoxp-xxxxxxxxxx-xxxxxxxxxx-xxxxxxxxxx-xxxxxx"
+#
+
+if [ -f "$OPT_CONF" ]; then
+  source "$OPT_CONF"
+else
+  print_error "config $OPT_CONF not found."
+  exit -1
+fi
+
+################################################################
+## Set Slack API Token
+
+if [ -z "$OPT_TEAM" ]; then
+  OPT_TEAM="$DEFAULT_TEAM"
+fi
+
+TOKEN_NAME=TOKEN_$(echo "$OPT_TEAM" | tr a-z A-Z)
+TOKEN=${!TOKEN_NAME}
+
+if [ -z "$TOKEN" ]; then
+  print_error "No API Token found for $OPT_TEAM in $OPT_CONF."
+  exit -1
+fi
+
+################################################################
+## Main
+
+if [ -n "$OPT_DEBUG" ]; then
+  echo "update_slack_status \"$TOKEN\" \"$1\" \"$2\""
+  exit 0
+fi
+
+case $OPT_METHOD in
+  status)
+    error_message=$(update_slack_status "$TOKEN" "$1" "$2")
+    ;;
+  message)
+    error_message=$(post_text_to_slack "$TOKEN" "$1" "$2")
+    ;;
+  *)
+    print_error "Unknown method: $OPT_METHOD."
+    usage
+    exit 1
+    ;;
+esac
+
+if [ -n "$error_message" ]; then
+  print_error "$error_message."
+  exit 1
+fi
+
+exit 0
