@@ -155,8 +155,10 @@ end
 BeaconScanner.new.event_loop do |header, uuid, major, minor, power, rssi|
   if header == "4c000215" # Apple iBeacon
     stat = BeaconStatus.new(uuid, major, minor, power, rssi)
-    puts stat.dump if stat.member?
-    stat.push_to_redis($redis, $redis_key) if $redis
+    if stat.member?
+      puts stat.dump
+      stat.push_to_redis($redis, $redis_key) if $redis
+   end
   end
   true # loop forever
 end
