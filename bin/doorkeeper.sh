@@ -18,12 +18,27 @@ set_slack_status()
   esac
 }
 
+set_doorplate()
+{
+  case "$1" in
+  0)
+      doorplate.py "在室"
+      ;;
+  1)
+      doorplate.py "不在"
+      ;;
+  *)
+      doorplate.py ""
+  esac
+}
+
 while true
 do
   status=$(redis-cli --raw get sensor.room.205.locked)
   if [ "$current_status" != "$status" ]; then
     current_status="$status"
     set_slack_status "$current_status"
+    set_doorplate "$current_status"
   fi
   sleep 3
 done
