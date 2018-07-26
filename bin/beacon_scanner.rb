@@ -47,7 +47,8 @@ require 'redis'
 # Helper classes
 
 class BeaconStatus
-  MEMBER_UUIDS = ["467fd32695d242f2bbbc5c8f4610b120"]
+  # room 205 and 106
+  MEMBER_UUIDS = ["467fd32695d242f2bbbc5c8f4610b120", "467fd32695d242f2bbbc5c8f4610b121"]
 
   attr_reader :uuid, :major, :minor, :power, :rssi, :timestamp
 
@@ -158,7 +159,7 @@ BeaconScanner.new.event_loop do |header, uuid, major, minor, power, rssi|
     if stat.member?
       puts stat.dump
       stat.push_to_redis($redis, $redis_key) if $redis
-   end
+    end
   end
   true # loop forever
 end

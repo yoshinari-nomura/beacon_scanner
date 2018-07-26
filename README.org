@@ -1,0 +1,90 @@
+#+TITLE: BLE Beacon scanner
+#+AUTHOR: Yoshinari Nomura
+#+EMAIL:
+#+DATE:
+#+OPTIONS: H:3 num:2 toc:nil
+#+OPTIONS: ^:nil @:t \n:nil ::t |:t f:t TeX:t
+#+OPTIONS: skip:nil
+#+OPTIONS: author:t
+#+OPTIONS: email:nil
+#+OPTIONS: creator:nil
+#+OPTIONS: timestamp:nil
+#+OPTIONS: timestamps:nil
+#+OPTIONS: d:nil
+#+OPTIONS: tags:t
+#+TEXT:
+#+DESCRIPTION:
+#+KEYWORDS:
+#+LANGUAGE: ja
+#+LATEX_CLASS: jsarticle
+#+LATEX_CLASS_OPTIONS: [a4j,dvipdfmx]
+# #+LATEX_HEADER: \usepackage{plain-article}
+# #+LATEX_HEADER: \renewcommand\maketitle{}
+# #+LATEX_HEADER: \pagestyle{empty}
+# #+LaTeX: \thispagestyle{empty}
+
+* はじめに
+  beacon_scanner.rb は，Apple の iBeacon 仕様の Beacon
+  をスキャンして一覧表示するプログラムです．
+  Ruby で書かれています．
+
+  ローカルの Redis サーバの指定したキーに Beacon の状況を書き込む機能があります．
+  他の Redis クライアントから Beacon の状況を非同期に読み出せます．
+
+  Beacon を見付けたら何かするといった，コールバックのようなのものありません．
+  Redis 側で何とかしてください．
+
+* 利用例
+
+  以下の通り実行すると:
+  #+BEGIN_SRC shell-script
+    bundle exec bin/beacon_scanner.rb --redis myroom
+  #+END_SRC
+
+  見付けた Beacon について，
+  : 2018-07-26 10:20:22 +0900/467fd32695d242f2bbbc5c8f4610b120/8/0/-55/-74 (lock:0)
+  のような表示が出ます．同時に，以下の key/value がローカルの Redis にセットされます．
+
+  #+BEGIN_EXAMPLE
+    myroom.major = major
+    myroom.minor = minor
+    myroom.power = power
+    myroom.rssi  = rssi
+    myroom.timestamp = 観測した timestamp
+    myroom.locked =  1/0 (デバッグ用 major が 8 のときに 1 になる)
+  #+END_EXAMPLE
+
+  Redis の pub/sub には，以下の key/value で publish されるので，
+  イベントを待って処理したい場合には，
+  これを使うといいでしょう．
+  : myroom.updated = 観測したtimestamp
+
+* インストール
+  Linux の場合，関連パッケージをインストール:
+  #+BEGIN_SRC shell-script
+    sudo apt-get install bluez libbluetooth-dev
+    # 以下は，Redis を使うなら
+    sudo apt-get install redis-server
+  #+END_SRC
+
+  Ruby がインストールされている状態で:
+  #+BEGIN_SRC shell-script
+    git clone https://github.com/yoshinari-nomura/beacon_scanner.git
+    cd beacon_scanner
+    gem install bundler
+    bundle install --path vendor/bundle
+  #+END_SRC
+
+  Mac に Redis を入れたい人は，あまりいないと思いますが，
+  試したい人は，Homebrew や Docker でインストールするといいでしょう．
+
+* TODO 制限
+  以下の制限があります．修正したら，ぜひ PR ください．
+
+  + どの Beacon UUID に反応するかは，コード中に直書きされているので，
+    適宜変更の必要があります．
+  + Beacon の UUID 毎に Redis の名前空間を分けるなりするべきです．
+
+* 参考
+  + https://github.com/RadiusNetworks/scanbeacon-gem
+  + https://github.com/yoshinari-nomura/rn4020_ble_board
